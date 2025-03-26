@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Serial Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #c7c7c7;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #container {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        #controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        textarea {
+            background-color: #252526;
+            color: #ffffff;
+            border: none;
+            width: 100%;
+            flex-grow: 1;
+            resize: none;
+            font-family: monospace;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        input, button, select {
+            background-color: #3c3c3c;
+            color: #ffffff;
+            border: none;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            outline: none;
+        }
+        input {
+            flex: 1;
+        }
+        button:hover, select:hover, input:hover {
+            background-color: #575757;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <button id="connectButton">Connect</button>
+            <button id="disconnectButton" disabled>Disconnect</button>
+            <input id="inputField" type="text" placeholder="Type and press Enter to send">
+            <label for="baudRateSelect">Baud Rate:</label>
+            <select id="baudRateSelect">
+                <option value="9600" selected>9600</option>
+                <option value="19200">19200</option>
+                <option value="38400">38400</option>
+                <option value="115200">115200</option>
+            </select>
+            <button id="toggleTimestamp">Timestamp</button>
+            <button id="toggleAutoscroll">Autoscroll</button>
+            <button id="clearOutput">Clear</button>
+        </div>
+        <textarea id="output" readonly></textarea>
+    </div>
+
+    <script>
+        const connectButton = document.getElementById('connectButton');
+        const disconnectButton = document.getElementById('disconnectButton');
+        const baudRateSelect = document.getElementById('baudRateSelect');
+        const toggleTimestamp = document.getElementById('toggleTimestamp');
+        const toggleAutoscroll = document.getElementById('toggleAutoscroll');
+        const clearOutput = document.getElementById('clearOutput');
+        const inputField = document.getElementById('inputField');
+        const output = document.getElementById('output');
+
+        let port = null;
+        let reader = null;
+        let writer = null;
+        let useTimestamp = false;
+        let autoscroll = true;
+
+        // Connect to serial device using browser popup
+        async function connectToPort() {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: parseInt(baudRateSelect.value) });
+
+                connectButton.disabled = true;
+                disconnectButton.disabled = false;
+                output.value += 'Connected to the serial device.\n';
+
+                // Set up reader and writer
+                const decoder = new TextDecoderStream();
+                port.readable.pipeTo(decoder.writable);
+                reader = decoder.readable.getReader();
+                writer = port.writable.getWriter();
+
+                // Start reading loop
+                startReading();
+            } catch (error) {
+                output.value += `Error connecting to port: ${error.message}\n`;
+            }
+        }
+
+        // Disconnect from the current port
+        async function disconnectFromPort() {
+            try {
+                if (reader) {
+                    await reader.cancel();
+                    reader.releaseLock();
+                }
+                if (writer) {
+                    await writer.close();
+                }
+                if (port) {
+                    await port.close();
+                    port = null;
+                    output.value += 'Disconnected from the serial device.\n';
+                }
+                connectButton.disabled = false;
+                disconnectButton.disabled = true;
+            } catch (error) {
+                output.value += `Error disconnecting: ${error.message}\n`;
+            }
+        }
+
+        // Read incoming serial data
+        async function startReading() {
+            while (port && reader) {
+                try {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    if (value) {
+                        let data = value;
+                        if (useTimestamp) {
+                            const timestamp = new Date().toLocaleTimeString();
+                            data = `[${timestamp}] ${data}`;
+                        }
+                        output.value += data;
+                        if (autoscroll) {
+                            output.scrollTop = output.scrollHeight;
+                        }
+                    }
+                } catch (error) {
+                    output.value += `Error reading data: ${error.message}\n`;
+                    break;
+                }
+            }
+        }
+
+        // Event listeners
+        toggleTimestamp.addEventListener('click', () => {
+            useTimestamp = !useTimestamp;
+        });
+
+        toggleAutoscroll.addEventListener('click', () => {
+            autoscroll = !autoscroll;
+        });
+
+        clearOutput.addEventListener('click', () => {
+            output.value = '';
+        });
+
+        inputField.addEventListener('keydown', async (event) => {
+            if (event.key === 'Enter') {
+                const inputText = inputField.value;
+                if (inputText && writer) {
+                    const encoder = new TextEncoder();
+                    await writer.write(encoder.encode(inputText + '\n'));
+                    inputField.value = '';
+                }
+                event.preventDefault();
+            }
+        });
+
+        connectButton.addEventListener('click', connectToPort);
+        disconnectButton.addEventListener('click', disconnectFromPort);
+    </script>
+</body>
+</html>
