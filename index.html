@@ -136,18 +136,26 @@
 
         // Read incoming serial data
         async function startReading() {
+            let buffer = ''; // To collect partial data between linebreaks
             while (port && reader) {
                 try {
                     const { value, done } = await reader.read();
                     if (done) break;
 
                     if (value) {
-                        let data = value;
-                        if (useTimestamp) {
-                            const timestamp = new Date().toLocaleTimeString();
-                            data = `[${timestamp}] ${data}`;
-                        }
-                        output.value += data;
+                        buffer += value; // Accumulate data
+                        let lines = buffer.split('\n'); // Split data by linebreaks
+                        buffer = lines.pop(); // Save the last (potentially incomplete) chunk
+
+                        lines.forEach((line) => {
+                            let data = line.trim(); // Remove extra whitespace
+                            if (useTimestamp) {
+                                const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+                                data = `${timestamp} -> ${data}`;
+                            }
+                            output.value += data + '\n';
+                        });
+
                         if (autoscroll) {
                             output.scrollTop = output.scrollHeight;
                         }
